@@ -5,74 +5,130 @@ import google.generativeai as genai
 from sklearn.metrics.pairwise import cosine_similarity
 import pickle
 import time
+import requests
+from io import BytesIO
 
 # ================================
-# 🔥 CRAZY EMBEDDINGS
+# 🔥 CRAZY EMBEDDINGS - AUTO LOADING
 # ================================
 
 st.set_page_config(
     page_title="🔥 Crazy Embeddings",
     page_icon="🔥",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
-# Custom CSS
+# Custom CSS - Kompaktowy design
 st.markdown("""
 <style>
     .main-header {
-        font-size: 3rem;
+        font-size: 2.5rem;
         font-weight: bold;
         text-align: center;
         color: #ff4b4b;
-        margin-bottom: 2rem;
+        margin-bottom: 1rem;
     }
-    .metric-card {
+    .compact-metric {
         background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-        border-radius: 10px;
+        padding: 0.5rem;
+        border-radius: 8px;
         color: white;
         text-align: center;
-        margin: 0.5rem;
+        margin: 0.2rem;
+        font-size: 0.9rem;
     }
-    .result-card {
-        border: 1px solid #ddd;
-        border-radius: 10px;
-        padding: 1rem;
-        margin: 1rem 0;
-        background: #f9f9f9;
+    .result-header {
+        background: #f0f2f6;
+        padding: 0.5rem;
+        border-radius: 5px;
+        margin-bottom: 0.5rem;
+        font-weight: bold;
+        color: #1f1f1f;
     }
-    .zabieg-card {
-        border-left: 5px solid #ff4b4b;
+    .zabieg-header {
+        background: linear-gradient(90deg, #ff6b6b, #ee5a52);
+        color: white;
     }
-    .info-card {
-        border-left: 5px solid #4b8bff;
+    .info-header {
+        background: linear-gradient(90deg, #4dabf7, #339af0);
+        color: white;
     }
-    .similarity-badge {
-        background: linear-gradient(45deg, #667eea, #764ba2);
+    .result-item {
+        background: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 5px;
+        padding: 0.7rem;
+        margin-bottom: 0.5rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .similarity-score {
+        background: #28a745;
         color: white;
         padding: 0.2rem 0.5rem;
-        border-radius: 20px;
+        border-radius: 15px;
         font-size: 0.8rem;
         font-weight: bold;
+        float: right;
+    }
+    .url-link {
+        color: #0366d6;
+        text-decoration: none;
+        font-size: 0.85rem;
+        word-break: break-all;
+    }
+    .title-text {
+        font-weight: 500;
+        color: #24292e;
+        margin-top: 0.3rem;
+        font-size: 0.9rem;
+        line-height: 1.2;
+    }
+    .stTextArea textarea {
+        height: 120px;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ================================
-# FUNKCJE POMOCNICZE
+# KONFIGURACJA I ŁADOWANIE DANYCH
 # ================================
 
-@st.cache_data
-def load_embeddings_data(uploaded_file):
-    """Wczytuje dane z pliku PKL"""
+# URL do pliku PKL na GitHub (zastąp swoim)
+GITHUB_PKL_URL = "https://github.com/YOUR_USERNAME/YOUR_REPO/raw/main/embeddings_database.pkl"
+
+@st.cache_data(ttl=3600)  # Cache na 1 godzinę
+def load_embeddings_from_github(url):
+    """Automatyczne ładowanie embeddingów z GitHub"""
     try:
-        df_embeddings = pickle.load(uploaded_file)
-        embeddings_matrix = np.array(df_embeddings['embedding'].tolist())
-        return df_embeddings, embeddings_matrix
+        with st.spinner("📥 Ładuję embeddingi z GitHub..."):
+            response = requests.get(url, timeout=60)
+            response.raise_for_status()
+            
+            # Wczytaj pickle z bytes
+            df_embeddings = pickle.load(BytesIO(response.content))
+            embeddings_matrix = np.array(df_embeddings['embedding'].tolist())
+            
+            return df_embeddings, embeddings_matrix
     except Exception as e:
-        st.error(f"Błąd wczytywania danych: {e}")
+        st.error(f"❌ Nie można załadować embeddingów: {e}")
+        st.info("💡 Sprawdź czy URL do pliku PKL na GitHub jest poprawny")
         return None, None
+
+def get_api_key():
+    """Pobiera klucz API z secrets lub input"""
+    try:
+        # Najpierw spróbuj z secrets
+        api_key = st.secrets["GEMINI_API_KEY"]
+        return api_key
+    except:
+        # Fallback - input od użytkownika
+        with st.sidebar:
+            st.warning("⚠️ Brak klucza API w secrets")
+            api_key = st.text_input("🔑 Gemini API Key", type="password")
+            if api_key:
+                return api_key
+        return None
 
 def configure_gemini_api(api_key):
     """Konfiguruje API Gemini"""
@@ -83,32 +139,44 @@ def configure_gemini_api(api_key):
         st.error(f"Błąd konfiguracji API: {e}")
         return False
 
-def generate_query_embedding(text, api_key):
+def generate_query_embedding(text):
     """Generuje embedding dla tekstu"""
     try:
-        with st.spinner("🔄 Generuję embedding..."):
-            result = genai.embed_content(
-                model="models/gemini-embedding-exp-03-07",
-                content=[text],
-                task_type="SEMANTIC_SIMILARITY",
-                output_dimensionality=3072
-            )
-            return np.array(result['embedding'][0])
+        result = genai.embed_content(
+            model="models/gemini-embedding-exp-03-07",
+            content=[text],
+            task_type="SEMANTIC_SIMILARITY",
+            output_dimensionality=3072
+        )
+        return np.array(result['embedding'][0])
     except Exception as e:
         st.error(f"Błąd API: {e}")
         return None
 
-def find_similar_articles_balanced(query_text, df_embeddings, embeddings_matrix, api_key, 
+def extract_title_from_chunk(chunk_text):
+    """Wyciąga tytuł z fragmentu tekstu"""
+    if pd.isna(chunk_text):
+        return "Brak tytułu"
+    
+    text = str(chunk_text)
+    # Weź pierwsze 80 znaków jako tytuł
+    title = text[:80].strip()
+    if len(text) > 80:
+        title += "..."
+    return title
+
+def find_similar_articles_balanced(query_text, df_embeddings, embeddings_matrix, 
                                  similarity_threshold=0.75, total_results=10):
     """Równomierne wyszukiwanie podobieństw"""
     
     # Generuj embedding
-    query_embedding = generate_query_embedding(query_text, api_key)
-    if query_embedding is None:
-        return None
+    with st.spinner("🔄 Analizuję tekst..."):
+        query_embedding = generate_query_embedding(query_text)
+        if query_embedding is None:
+            return None
     
     # Oblicz podobieństwa
-    with st.spinner("🔄 Obliczam podobieństwa..."):
+    with st.spinner("🔄 Szukam podobieństw..."):
         similarities = cosine_similarity([query_embedding], embeddings_matrix)[0]
         df_results = df_embeddings.copy()
         df_results['similarity'] = similarities
@@ -118,16 +186,19 @@ def find_similar_articles_balanced(query_text, df_embeddings, embeddings_matrix,
         'zabieg' if '/zabiegi/' in url else 'informacyjny' if '/klinikaodadoz/' in url else 'inny'
     )
     
+    # Dodaj tytuły
+    df_results['title'] = df_results['chunk_text'].apply(extract_title_from_chunk)
+    
     # Filtracja
     df_filtered = df_results[df_results['similarity'] > similarity_threshold]
     
     if len(df_filtered) == 0:
-        st.warning(f"⚠️ Brak wyników powyżej progu {similarity_threshold}")
-        # Weź najlepsze bez podziału na kategorie
+        st.warning(f"⚠️ Brak wyników > {similarity_threshold}, pokazuję najlepsze")
         top_results = df_results.nlargest(total_results, 'similarity')
         top_results['category'] = top_results['source_address'].apply(lambda url: 
             'zabieg' if '/zabiegi/' in url else 'informacyjny' if '/klinikaodadoz/' in url else 'inny'
         )
+        top_results['title'] = top_results['chunk_text'].apply(extract_title_from_chunk)
         return top_results
     
     # Równomierny podział
@@ -135,15 +206,12 @@ def find_similar_articles_balanced(query_text, df_embeddings, embeddings_matrix,
     info_results = df_filtered[df_filtered['category'] == 'informacyjny'].sort_values('similarity', ascending=False)
     
     half = total_results // 2
-    
-    # Weź najlepsze z każdej kategorii
     top_zabiegi = zabieg_results.head(half)
     top_info = info_results.head(half)
     
-    # Połącz wyniki
+    # Połącz i uzupełnij
     balanced = pd.concat([top_zabiegi, top_info])
     
-    # Uzupełnij jeśli za mało z jednej kategorii
     if len(balanced) < total_results:
         remaining = total_results - len(balanced)
         if len(zabieg_results) > len(top_zabiegi):
@@ -155,74 +223,90 @@ def find_similar_articles_balanced(query_text, df_embeddings, embeddings_matrix,
     
     return balanced.sort_values('similarity', ascending=False).head(total_results)
 
-def display_results(results):
-    """Wyświetla wyniki wyszukiwania"""
+def display_results_compact(results):
+    """Kompaktowe wyświetlanie wyników w dwóch kolumnach"""
     if results is None or len(results) == 0:
         st.error("😔 Brak wyników")
         return
     
-    # Statystyki
-    category_counts = results['category'].value_counts()
+    # Podziel wyniki na kategorie
+    zabiegi = results[results['category'] == 'zabieg']
+    informacyjne = results[results['category'] == 'informacyjny']
     
+    # Statystyki górne
     col1, col2, col3 = st.columns(3)
     with col1:
-        zabiegi_count = category_counts.get('zabieg', 0)
         st.markdown(f"""
-        <div class="metric-card">
-            <h3>💉 Zabiegi</h3>
-            <h2>{zabiegi_count}</h2>
+        <div class="compact-metric">
+            💉 Zabiegi: {len(zabiegi)}
         </div>
         """, unsafe_allow_html=True)
     
     with col2:
-        info_count = category_counts.get('informacyjny', 0)
         st.markdown(f"""
-        <div class="metric-card">
-            <h3>📚 Informacyjne</h3>
-            <h2>{info_count}</h2>
+        <div class="compact-metric">
+            📚 Klinika od A do Z: {len(informacyjne)}
         </div>
         """, unsafe_allow_html=True)
     
     with col3:
-        avg_similarity = results['similarity'].mean()
+        avg_sim = results['similarity'].mean()
         st.markdown(f"""
-        <div class="metric-card">
-            <h3>📊 Śr. podobieństwo</h3>
-            <h2>{avg_similarity:.1%}</h2>
+        <div class="compact-metric">
+            📊 Śr. podobieństwo: {avg_sim:.1%}
         </div>
         """, unsafe_allow_html=True)
     
-    st.markdown("---")
+    # Wyniki w dwóch kolumnach
+    col_zabiegi, col_info = st.columns(2)
     
-    # Wyniki
-    for i, (_, row) in enumerate(results.iterrows(), 1):
-        emoji = "💉" if row['category'] == 'zabieg' else "📚"
-        card_class = "zabieg-card" if row['category'] == 'zabieg' else "info-card"
+    # KOLUMNA 1: ZABIEGI
+    with col_zabiegi:
+        st.markdown("""
+        <div class="result-header zabieg-header">
+            💉 ZABIEGI
+        </div>
+        """, unsafe_allow_html=True)
         
-        with st.container():
-            st.markdown(f"""
-            <div class="result-card {card_class}">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                    <h3>{emoji} WYNIK {i} - {row['category'].upper()}</h3>
-                    <span class="similarity-badge">{row['similarity']:.1%}</span>
+        if len(zabiegi) == 0:
+            st.info("Brak zabiegów w wynikach")
+        else:
+            for _, row in zabiegi.iterrows():
+                similarity_pct = f"{row['similarity']:.1%}"
+                
+                st.markdown(f"""
+                <div class="result-item">
+                    <div class="similarity-score">{similarity_pct}</div>
+                    <a href="{row['source_address']}" target="_blank" class="url-link">
+                        {row['source_address']}
+                    </a>
+                    <div class="title-text">{row['title']}</div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown(f"**🌐 URL:** {row['source_address']}")
-            
-            if 'chunk_text' in row and pd.notna(row['chunk_text']):
-                chunk_text = str(row['chunk_text'])
-                preview = chunk_text[:300] + "..." if len(chunk_text) > 300 else chunk_text
+                """, unsafe_allow_html=True)
+    
+    # KOLUMNA 2: KLINIKA OD A DO Z
+    with col_info:
+        st.markdown("""
+        <div class="result-header info-header">
+            📚 KLINIKA OD A DO Z
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if len(informacyjne) == 0:
+            st.info("Brak artykułów informacyjnych w wynikach")
+        else:
+            for _, row in informacyjne.iterrows():
+                similarity_pct = f"{row['similarity']:.1%}"
                 
-                with st.expander("📄 Podgląd fragmentu"):
-                    st.write(preview)
-                
-                # Przycisk kopiowania linku
-                if st.button(f"📋 Kopiuj link", key=f"copy_{i}"):
-                    st.code(row['source_address'])
-            
-            st.markdown("---")
+                st.markdown(f"""
+                <div class="result-item">
+                    <div class="similarity-score">{similarity_pct}</div>
+                    <a href="{row['source_address']}" target="_blank" class="url-link">
+                        {row['source_address']}
+                    </a>
+                    <div class="title-text">{row['title']}</div>
+                </div>
+                """, unsafe_allow_html=True)
 
 # ================================
 # GŁÓWNA APLIKACJA
@@ -231,106 +315,88 @@ def display_results(results):
 def main():
     # Header
     st.markdown('<h1 class="main-header">🔥 Crazy Embeddings</h1>', unsafe_allow_html=True)
-    st.markdown("### ⚖️ Inteligentne wyszukiwanie podobieństw z równomiernym podziałem")
+    st.markdown("### ⚖️ Równomierne wyszukiwanie podobieństw - Zabiegi vs Klinika od A do Z")
     
-    # Sidebar - Konfiguracja
+    # Automatyczne ładowanie danych
+    if 'embeddings_loaded' not in st.session_state:
+        # ZMIEŃ TEN URL NA SWÓJ GITHUB REPO!
+        df_embeddings, embeddings_matrix = load_embeddings_from_github(GITHUB_PKL_URL)
+        
+        if df_embeddings is not None:
+            st.session_state.df_embeddings = df_embeddings
+            st.session_state.embeddings_matrix = embeddings_matrix
+            st.session_state.embeddings_loaded = True
+            st.success(f"✅ Automatycznie załadowano {len(df_embeddings)} embeddingów z GitHub!")
+        else:
+            st.error("❌ Nie można załadować embeddingów")
+            st.stop()
+    
+    # Pobierz dane z session state
+    df_embeddings = st.session_state.df_embeddings
+    embeddings_matrix = st.session_state.embeddings_matrix
+    
+    # Konfiguracja API
+    api_key = get_api_key()
+    if not api_key:
+        st.warning("⚠️ Wprowadź klucz API Gemini")
+        st.stop()
+    
+    if not configure_gemini_api(api_key):
+        st.error("❌ Błąd konfiguracji API")
+        st.stop()
+    
+    # Parametry w sidebar (zwinięty domyślnie)
     with st.sidebar:
-        st.header("⚙️ Konfiguracja")
-        
-        # API Key
-        api_key = st.text_input("🔑 Gemini API Key", type="password", 
-                               help="Wprowadź swój klucz API Google Gemini")
-        
-        if api_key:
-            if configure_gemini_api(api_key):
-                st.success("✅ API skonfigurowane")
-            else:
-                st.error("❌ Błąd API")
-        
-        st.markdown("---")
-        
-        # Upload pliku
-        st.header("📂 Dane")
-        uploaded_file = st.file_uploader(
-            "Wgraj plik z embeddingami (.pkl)", 
-            type=['pkl'],
-            help="Plik PKL wygenerowany w pierwszym Colabie"
-        )
-        
-        if uploaded_file:
-            df_embeddings, embeddings_matrix = load_embeddings_data(uploaded_file)
-            
-            if df_embeddings is not None:
-                st.success(f"✅ Załadowano {len(df_embeddings)} fragmentów")
-                
-                # Statystyki bazy
-                zabiegi = len(df_embeddings[df_embeddings['source_address'].str.contains('/zabiegi/', na=False)])
-                info = len(df_embeddings[df_embeddings['source_address'].str.contains('/klinikaodadoz/', na=False)])
-                
-                st.info(f"""
-                📊 **Statystyki bazy:**
-                - 💉 Zabiegi: {zabiegi}
-                - 📚 Informacyjne: {info}
-                - 📐 Wymiar: {embeddings_matrix.shape[1]}
-                """)
-        
-        st.markdown("---")
-        
-        # Parametry wyszukiwania
         st.header("🎛️ Parametry")
         similarity_threshold = st.slider(
             "📏 Próg podobieństwa", 
-            min_value=0.5, max_value=0.9, value=0.75, step=0.05,
-            help="Minimalny poziom podobieństwa dla wyników"
+            min_value=0.5, max_value=0.9, value=0.75, step=0.05
         )
-        
         total_results = st.selectbox(
             "🔢 Liczba wyników", 
             options=[6, 8, 10, 12, 16, 20], 
-            index=2,
-            help="Łączna liczba wyników (połowa zabiegi, połowa informacyjne)"
+            index=2
         )
         
         st.markdown("---")
-        st.markdown("### 💡 Jak używać:")
-        st.markdown("""
-        1. Wprowadź klucz API Gemini
-        2. Wgraj plik PKL z embeddingami  
-        3. Wklej tekst do analizy
-        4. Otrzymasz równomierny podział wyników
+        
+        # Statystyki bazy
+        zabiegi_count = len(df_embeddings[df_embeddings['source_address'].str.contains('/zabiegi/', na=False)])
+        info_count = len(df_embeddings[df_embeddings['source_address'].str.contains('/klinikaodadoz/', na=False)])
+        
+        st.markdown(f"""
+        **📊 Statystyki bazy:**
+        - 💉 Zabiegi: {zabiegi_count}
+        - 📚 Klinika A-Z: {info_count}
+        - 📐 Wymiar: {embeddings_matrix.shape[1]}
         """)
     
-    # Main content
-    if not api_key:
-        st.warning("⚠️ Wprowadź klucz API w sidebarze")
-        return
-    
-    if 'df_embeddings' not in locals() or df_embeddings is None:
-        st.warning("⚠️ Wgraj plik z embeddingami w sidebarze")
-        return
-    
     # Formularz wyszukiwania
-    st.header("🔍 Wyszukiwanie")
+    st.markdown("### 🔍 Wklej tekst do analizy:")
     
-    with st.form("search_form"):
+    with st.form("search_form", clear_on_submit=False):
         query_text = st.text_area(
-            "📝 Wklej tekst do analizy:",
-            height=200,
-            placeholder="Wklej tutaj artykuł, opis zabiegu lub pytanie...",
-            help="System znajdzie podobne fragmenty z równomiernym podziałem na zabiegi i artykuły informacyjne"
+            "",
+            height=120,
+            placeholder="Wklej tutaj artykuł, opis problemu lub pytanie o zabiegi...",
+            label_visibility="collapsed"
         )
         
-        col1, col2 = st.columns([1, 4])
+        col1, col2, col3 = st.columns([2, 1, 1])
         with col1:
-            search_button = st.form_submit_button("🚀 Szukaj", use_container_width=True)
+            search_button = st.form_submit_button("🚀 Szukaj podobieństw", use_container_width=True)
         with col2:
             if query_text:
-                st.info(f"📊 Długość tekstu: {len(query_text)} znaków")
+                st.metric("📊 Znaków", len(query_text))
+        with col3:
+            if query_text:
+                words = len(query_text.split())
+                st.metric("📝 Słów", words)
     
     # Wyszukiwanie
     if search_button and query_text.strip():
         if len(query_text.strip()) < 10:
-            st.error("⚠️ Tekst jest za krótki (min. 10 znaków)")
+            st.error("⚠️ Tekst za krótki (min. 10 znaków)")
             return
         
         start_time = time.time()
@@ -338,45 +404,38 @@ def main():
         results = find_similar_articles_balanced(
             query_text, 
             df_embeddings, 
-            embeddings_matrix, 
-            api_key,
+            embeddings_matrix,
             similarity_threshold, 
             total_results
         )
         
         search_time = time.time() - start_time
         
-        if results is not None:
-            st.success(f"✅ Wyszukiwanie zakończone w {search_time:.1f}s")
+        if results is not None and len(results) > 0:
+            st.success(f"✅ Znaleziono {len(results)} wyników w {search_time:.1f}s")
             
-            # Wyświetl wyniki
-            st.header("🎉 Wyniki")
-            display_results(results)
+            # Kompaktowe wyświetlenie wyników
+            display_results_compact(results)
             
-            # Opcja eksportu
-            if len(results) > 0:
-                st.markdown("---")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    # Przygotuj dane do eksportu
-                    export_df = results.copy()
-                    if 'embedding' in export_df.columns:
-                        export_df = export_df.drop('embedding', axis=1)
-                    
+            # Eksport
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("📥 Pobierz wyniki CSV"):
+                    export_df = results[['category', 'similarity', 'source_address', 'title']].copy()
                     csv_data = export_df.to_csv(index=False)
                     st.download_button(
-                        "📥 Pobierz CSV",
+                        "📥 Zapisz plik",
                         data=csv_data,
                         file_name=f"crazy_embeddings_{int(time.time())}.csv",
                         mime="text/csv"
                     )
-                
-                with col2:
-                    if st.button("🔄 Nowe wyszukiwanie"):
-                        st.rerun()
+            
+            with col2:
+                if st.button("🔄 Nowe wyszukiwanie"):
+                    st.rerun()
         else:
-            st.error("❌ Błąd podczas wyszukiwania")
+            st.error("😔 Brak wyników - spróbuj obniżyć próg podobieństwa")
     
     elif search_button:
         st.error("⚠️ Wprowadź tekst do wyszukiwania")
@@ -389,35 +448,43 @@ if __name__ == "__main__":
     main()
 
 # ================================
-# INSTRUKCJE URUCHOMIENIA
+# INSTRUKCJE WDROŻENIA
 # ================================
 
 """
-INSTRUKCJE URUCHOMIENIA:
+INSTRUKCJE WDROŻENIA Z GITHUB:
 
-1. Zapisz ten kod jako: crazy_embeddings.py
+1. PRZYGOTUJ REPO:
+   - Wgraj plik embeddings_database.pkl do swojego GitHub repo
+   - Skopiuj URL do raw file (kliknij plik -> Raw -> skopiuj URL)
 
-2. Zainstaluj wymagane biblioteki:
-   pip install streamlit pandas numpy scikit-learn google-generativeai
+2. ZMIEŃ URL W KODZIE:
+   - Znajdź linię: GITHUB_PKL_URL = "https://github.com/YOUR_USERNAME..."
+   - Zastąp swoim URL do pliku PKL
 
-3. Uruchom aplikację:
-   streamlit run crazy_embeddings.py
+3. STREAMLIT SECRETS:
+   - W Streamlit Cloud: Settings -> Secrets
+   - Dodaj: GEMINI_API_KEY = "twój_klucz_api"
 
-4. Otwórz w przeglądarce: http://localhost:8501
+4. REQUIREMENTS.TXT:
+   streamlit
+   pandas
+   numpy
+   scikit-learn
+   google-generativeai
+   requests
 
-5. W sidebarze:
-   - Wprowadź klucz API Gemini
-   - Wgraj plik PKL z embeddingami
+5. DEPLOY:
+   - Wgraj app.py + requirements.txt do GitHub
+   - Deploy przez Streamlit Cloud
+   - Gotowe!
 
-6. Wklej tekst i ciesz się równomiernym wyszukiwaniem! 🚀
-
-FUNKCJE:
-✅ Równomierne wyniki (50% zabiegi, 50% informacyjne)
-✅ Intuicyjny interfejs
-✅ Statystyki w czasie rzeczywistym  
-✅ Kolorowe karty wyników
-✅ Eksport do CSV
+ZALETY TEGO ROZWIĄZANIA:
+✅ Automatyczne ładowanie embeddingów z GitHub
+✅ Bezpieczny API key w secrets
+✅ Kompaktowy interfejs 2-kolumnowy
+✅ Szybkie ładowanie z cache
+✅ "Klinika od A do Z" zamiast "Informacyjne"
 ✅ Responsywny design
-✅ Wskaźniki podobieństwa
-✅ Podgląd fragmentów
+✅ Minimalne scrollowanie
 """
