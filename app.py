@@ -95,7 +95,7 @@ st.markdown("""
 # ================================
 
 # URL do pliku PKL na GitHub (zastąp swoim)
-GITHUB_PKL_URL = "https://github.com/blackniesz/crazy-embeddings/blob/main/embeddings_database.pkl"
+GITHUB_PKL_URL = "https://github.com/blackniesz/crazy-embeddings/raw/main/embeddings_database.pkl"
 
 @st.cache_data(ttl=3600)  # Cache na 1 godzinę
 def load_embeddings_from_github(url):
